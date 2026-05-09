@@ -1,0 +1,12 @@
+name: BE — matrix CI (all services)
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [be_ci_all]
+
+jobs:
+  ci-all:
+    uses: ./.github/workflows/reusable-be-ci-matrix.yml
+    secrets:
+      checkout_token: ${{ secrets.WORKFLOW_CHECKOUT_TOKEN }}

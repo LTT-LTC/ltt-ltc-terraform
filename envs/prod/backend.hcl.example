@@ -1,0 +1,15 @@
+# Example partial backend configuration for remote state (optional).
+# Usage from this directory:
+#   terraform init -backend-config=backend.hcl
+#
+# Uncomment one backend style and fill placeholders.
+
+# bucket                      = "YOUR_TF_STATE_BUCKET"
+# key                         = "ltt-ltc/prod/terraform.tfstate"
+# region                      = "us-east-1"
+# encrypt                     = true
+#
+# For Terraform Cloud:
+# hostname     = "app.terraform.io"
+# organization = "YOUR_ORG"
+# workspaces { name = "ltt-ltc-prod" }

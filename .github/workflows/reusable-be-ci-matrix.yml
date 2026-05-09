@@ -1,0 +1,40 @@
+name: Reusable BE CI (all services matrix)
+
+on:
+  workflow_call:
+    secrets:
+      checkout_token:
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo:
+          - ltt-ltc-administration-api
+          - ltt-ltc-customer-api
+          - ltt-ltc-movie-service
+          - ltt-ltc-product-api
+          - ltt-ltc-payment-api
+          - ltt-ltc-web-gateway
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ matrix.repo }}
+          ref: refs/heads/main
+          token: ${{ secrets.checkout_token }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore
+
+      - name: Test
+        run: dotnet test --no-build --verbosity normal --configuration Release

@@ -1,0 +1,17 @@
+# Copy to terraform.tfvars (gitignored) or export TF_VAR_* — do not commit secrets.
+
+cloudflare_account_id = "REPLACE_CLOUDFLARE_ACCOUNT_ID"
+# cloudflare_api_token supplied via environment: TF_VAR_cloudflare_api_token
+
+zone_name   = "ltt-ltc.io.vn"
+tunnel_name = "ltt-ltc-prod"
+
+# Match internal ingress reachable from cloudflared (compose vs Kubernetes DNS).
+origin_web_url = "http://ltt-ltc-nginx:80"
+origin_api_url = "http://ltt-ltc-nginx:80"
+
+public_hostnames = {
+  apex = "ltt-ltc.io.vn"
+  www  = "www.ltt-ltc.io.vn"
+  api  = "api.ltt-ltc.io.vn"
+}
