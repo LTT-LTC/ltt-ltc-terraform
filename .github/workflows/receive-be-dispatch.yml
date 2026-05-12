@@ -89,13 +89,15 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.DEPLOY_SSH_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy via SSH
+      - name: Deploy to Swarm via SSH
         env:
           COMPOSE_SERVICE: ${{ steps.meta.outputs.compose }}
+          IMAGE_NAME: ${{ steps.meta.outputs.image }}
         run: |
           ssh -o StrictHostKeyChecking=yes ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }} << EOF
             set -e
-            cd ${{ secrets.DEPLOY_COMPOSE_DIR }}
-            docker compose pull ${COMPOSE_SERVICE}
-            docker compose up -d --no-deps ${COMPOSE_SERVICE}
+            echo "Updating ${COMPOSE_SERVICE} service in Docker Swarm..."
+            docker service update --image ${IMAGE_NAME}:latest --force ltt-ltc-db_${COMPOSE_SERVICE}
+            echo "Deployment complete!"
+            docker service ps ltt-ltc-db_${COMPOSE_SERVICE}
           EOF

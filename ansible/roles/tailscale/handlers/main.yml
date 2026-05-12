@@ -1,0 +1,6 @@
+---
+- name: Enable Tailscale
+  service:
+    name: tailscaled
+    state: started
+    enabled: yes

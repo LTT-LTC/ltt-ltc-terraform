@@ -1,0 +1,18 @@
+---
+# Tailscale
+tailscale_authkey: "tskey-auth-kzkS52p2d521CNTRL-iqup4V2TtJ9Tjt9jNaj6K9qXjLW37tQRM"
+
+# Cloudflare
+tunnel_token: "eyJhIjoiZjA2OTA5YTEzYTljNTM2MTM2Njc0NTQxY2YxNmJlYWMiLCJ0IjoiZTQ1MDc0ZTAtMjQ5Yy00NWI3LWI4N2MtNjM2ZjA2ZDIzZmVmIiwicyI6IllURTFZbVptTmpFdFlUVmhNeTAwTkRjd0xUZzNNVE10TlRJMk5HWmlaRE0zTnpreSJ9"
+
+# Database secrets
+sql_sa_password: "MyPassword123."
+rabbitmq_user: "guest"
+rabbitmq_pass: "guest"
+
+# Swarm configuration
+manager_advertise_addr: "100.99.158.16"
+
+# Service scaling
+min_replicas: 1
+max_replicas: 2

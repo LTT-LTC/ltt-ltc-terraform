@@ -1,0 +1,19 @@
+---
+- name: Check if Swarm is already initialized
+  shell: docker info --format '{% raw %}{{.Swarm.LocalNodeState}}{% endraw %}'
+  register: swarm_status
+  changed_when: false
+
+- name: Initialize Docker Swarm
+  command: docker swarm init --advertise-addr {{ manager_advertise_addr }}
+  when: swarm_status.stdout != "active"
+
+- name: Get Swarm join token for workers
+  command: docker swarm join-token -q worker
+  register: swarm_worker_token
+  changed_when: false
+
+- name: Save worker token to host facts
+  set_fact:
+    swarm_worker_token: "{{ swarm_worker_token.stdout }}"
+  when: swarm_worker_token.stdout is defined

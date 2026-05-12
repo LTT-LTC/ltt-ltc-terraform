@@ -1,0 +1,276 @@
+version: '3.8'
+
+services:
+  # ------------------------
+  # DATABASES
+  # ------------------------
+  ltt-ltc-sqlserver:
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD_FILE: /run/secrets/sql_sa_password
+    secrets:
+      - sql_sa_password
+    volumes:
+      - type: volume
+        source: ltt-ltc-sqlserver-data
+        target: /var/opt/mssql
+    networks:
+      - ltt-ltc-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == dranov-server
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/1433'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  ltt-ltc-mongodb:
+    image: mongo:6
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - type: volume
+        source: ltt-ltc-mongodb-data
+        target: /data/db
+    networks:
+      - ltt-ltc-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == dranov-server
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  ltt-ltc-rabbitmq:
+    image: rabbitmq:3-management-alpine
+    hostname: ltt-ltc-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: "guest"
+      RABBITMQ_DEFAULT_PASS: "guest"
+    volumes:
+      - type: volume
+        source: ltt-ltc-rabbitmq-data
+        target: /var/lib/rabbitmq
+    networks:
+      - ltt-ltc-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == dranov-server
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ------------------------
+  # ADMIN SERVICE
+  # ------------------------
+  ltt-ltc-administration-api:
+    image: dranov220805/ltt-ltc-administration-api:latest
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Kestrel__Endpoints__Http__Url: http://+:8080
+      Kestrel__Endpoints__Http__Protocols: Http1AndHttp2
+      App__CorsOrigins: https://ltt-ltc.io.vn,https://www.ltt-ltc.io.vn,https://api.ltt-ltc.io.vn,http://localhost:4200,http://localhost:3000
+      App__SelfUrl: https://api.ltt-ltc.io.vn
+      ConnectionStrings__Default: Server=ltt-ltc-sqlserver,1433;Database=LTC_Administration;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
+      ConnectionStrings__MongoDb: mongodb://ltt-ltc-mongodb:27017/ltt_ltc
+      Redis__Configuration: ltt-ltc-redis:6379
+      SeatHold__HoldDurationMinutes: "15"
+      RemoteServices__MovieService__BaseUrl: http://ltt-ltc-movie-api:8080
+      AuthServer__Authority: http://ltt-ltc-web-gateway:8080
+      AuthServer__RequireHttpsMetadata: "false"
+      RemoteServices__CustomerManagement__BaseUrl: http://ltt-ltc-customer-api:8080
+    networks:
+      - ltt-ltc-network
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      placement:
+        constraints:
+          - node.hostname == dranov-server
+
+  # ------------------------
+  # CUSTOMER SERVICE
+  # ------------------------
+  ltt-ltc-customer-api:
+    image: dranov220805/ltt-ltc-customer-api:latest
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Kestrel__Endpoints__Http__Url: http://+:8080
+      Kestrel__Endpoints__Http__Protocols: Http1AndHttp2
+      App__UseHttpsRedirection: "false"
+      App__CorsOrigins: https://ltt-ltc.io.vn,https://www.ltt-ltc.io.vn,https://api.ltt-ltc.io.vn,http://localhost:4200,http://localhost:3000
+      RemoteServices__MovieService__BaseUrl: http://ltt-ltc-movie-api:8080
+      ConnectionStrings__Default: Server=ltt-ltc-sqlserver,1433;Database=LTC_Customer;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
+      ConnectionStrings__CustomerService: Server=ltt-ltc-sqlserver,1433;Database=LTC_Customer;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
+      ConnectionStrings__AbpTenantManagement: Server=ltt-ltc-sqlserver,1433;Database=LTC_Administration;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
+      Redis__Configuration: ltt-ltc-redis:6379
+      AuthServer__Authority: http://ltt-ltc-web-gateway:8080
+      AuthServer__RequireHttpsMetadata: "false"
+    networks:
+      - ltt-ltc-network
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      placement:
+        constraints:
+          - node.hostname == dranov-server
+
+  # ------------------------
+  # MOVIE SERVICE
+  # ------------------------
+  ltt-ltc-movie-api:
+    image: dranov220805/ltt-ltc-movie-api:latest
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Kestrel__Endpoints__Http__Url: http://+:8080
+      Kestrel__Endpoints__Http__Protocols: Http1AndHttp2
+      App__UseHttpsRedirection: "false"
+      App__CorsOrigins: https://ltt-ltc.io.vn,https://www.ltt-ltc.io.vn,https://api.ltt-ltc.io.vn,http://localhost:4200,http://localhost:3000
+      ConnectionStrings__Default: Server=ltt-ltc-sqlserver,1433;Database=LTC_Movie;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
+      ConnectionStrings__AbpTenantManagement: Server=ltt-ltc-sqlserver,1433;Database=LTC_Administration;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
+      Redis__Configuration: ltt-ltc-redis:6379
+      AuthServer__Authority: http://ltt-ltc-web-gateway:8080
+      AuthServer__RequireHttpsMetadata: "false"
+    networks:
+      - ltt-ltc-network
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      placement:
+        constraints:
+          - node.hostname == dranov-server
+
+  # ------------------------
+  # PRODUCT SERVICE
+  # ------------------------
+  ltt-ltc-product-api:
+    image: dranov220805/ltt-ltc-product-api:latest
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Kestrel__Endpoints__Http__Url: http://+:8080
+      Kestrel__Endpoints__Http__Protocols: Http1AndHttp2
+      App__UseHttpsRedirection: "false"
+      App__CorsOrigins: https://ltt-ltc.io.vn,https://www.ltt-ltc.io.vn,https://api.ltt-ltc.io.vn,http://localhost:4200,http://localhost:3000
+      ConnectionStrings__Default: Server=ltt-ltc-sqlserver,1433;Database=LTC_Product;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True;MultipleActiveResultSets=true
+      ConnectionStrings__AbpTenantManagement: Server=ltt-ltc-sqlserver,1433;Database=LTC_Administration;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
+      ProductService__DefaultCatalogSchema: LTC
+      Redis__Configuration: ltt-ltc-redis:6379
+      AuthServer__Authority: http://ltt-ltc-web-gateway:8080
+      AuthServer__RequireHttpsMetadata: "false"
+    networks:
+      - ltt-ltc-network
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      placement:
+        constraints:
+          - node.hostname == dranov-server
+
+  # ------------------------
+  # PAYMENT SERVICE
+  # ------------------------
+  ltt-ltc-payment-api:
+    image: dranov220805/ltt-ltc-payment-api:latest
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Kestrel__Endpoints__Http__Url: http://+:8080
+      Kestrel__Endpoints__Http__Protocols: Http1AndHttp2
+      App__UseHttpsRedirection: "false"
+      App__CorsOrigins: https://ltt-ltc.io.vn,https://www.ltt-ltc.io.vn,https://api.ltt-ltc.io.vn,http://localhost:4200,http://localhost:3000
+      ConnectionStrings__Default: Server=ltt-ltc-sqlserver,1433;Database=LTC_Payment;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True;MultipleActiveResultSets=true
+      ConnectionStrings__AbpTenantManagement: Server=ltt-ltc-sqlserver,1433;Database=LTC_Administration;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
+      Redis__Configuration: ltt-ltc-redis:6379
+      AuthServer__Authority: http://ltt-ltc-web-gateway:8080
+      AuthServer__RequireHttpsMetadata: "false"
+      VnPay__PublicBaseUrl: "https://api.ltt-ltc.io.vn/ltc/payment-service"
+      VnPay__FrontendSuccessUrl: "https://ltt-ltc.io.vn/booking/payment/vnpay-success"
+      VnPay__FrontendFailureUrl: "https://ltt-ltc.io.vn/booking/payment/vnpay-failure"
+    networks:
+      - ltt-ltc-network
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      placement:
+        constraints:
+          - node.hostname == dranov-server
+
+  # ------------------------
+  # PORTAINER (dranov-server)
+  # ------------------------
+  portainer-dranov:
+    image: portainer/portainer-ce:latest
+    command: -H unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - portainer-dranov-data:/data
+    networks:
+      - ltt-ltc-network
+      - traefik-public
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == dranov-server
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.portainer-dranov.rule=Host(`db.ltt-ltc.io.vn`)"
+        - "traefik.http.routers.portainer-dranov.entrypoints=web"
+        - "traefik.http.services.portainer-dranov.loadbalancer.server.port=9000"
+
+networks:
+  ltt-ltc-network:
+    external: true
+  traefik-public:
+    external: true
+
+volumes:
+  ltt-ltc-sqlserver-data:
+    driver: local
+  ltt-ltc-mongodb-data:
+    driver: local
+  ltt-ltc-rabbitmq-data:
+    driver: local
+  portainer-dranov-data:
+    driver: local
+
+secrets:
+  sql_sa_password:
+    external: true
+  rabbitmq_user:
+    external: true
+  rabbitmq_pass:
+    external: true

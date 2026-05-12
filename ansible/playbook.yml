@@ -1,0 +1,42 @@
+---
+- name: Setup Docker on all nodes
+  hosts: swarm_nodes
+  become: yes
+  roles:
+    - docker
+
+- name: Setup Tailscale on all nodes
+  hosts: swarm_nodes
+  become: yes
+  roles:
+    - tailscale
+
+- name: Initialize Docker Swarm on manager
+  hosts: swarm_manager
+  become: yes
+  roles:
+    - swarm-init
+
+- name: Join workers to Swarm
+  hosts: swarm_workers
+  become: yes
+  roles:
+    - swarm-join
+
+- name: Deploy Traefik
+  hosts: swarm_manager
+  become: yes
+  roles:
+    - traefik
+
+- name: Configure Docker Secrets
+  hosts: swarm_manager
+  become: yes
+  roles:
+    - secrets
+
+- name: Deploy Application Stacks
+  hosts: swarm_manager
+  become: yes
+  roles:
+    - stacks

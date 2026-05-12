@@ -1,0 +1,171 @@
+version: '3.8'
+
+services:
+  # ------------------------
+  # FRONTEND - NextJS
+  # ------------------------
+  ltt-ltc-web-app:
+    image: dranov220805/ltt-ltc-web-app:latest
+    environment:
+      HOSTNAME: 0.0.0.0
+      NODE_ENV: production
+      # API endpoints for NextJS
+      NEXT_PUBLIC_API_BASE_URL: https://api.ltt-ltc.io.vn
+      NEXT_PUBLIC_AUTHORITY_URL: https://api.ltt-ltc.io.vn
+      # Internal API for SSR (Server-Side Rendering)
+      API_BASE_URL_INTERNAL: http://ltt-ltc-web-gateway:8080
+    networks:
+      - traefik-public
+      - ltt-ltc-network
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: pause
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+      placement:
+        constraints:
+          - node.hostname == kaka-server
+      labels:
+        - "traefik.enable=true"
+        # Main website
+        - "traefik.http.routers.web-app.rule=Host(`ltt-ltc.io.vn`) || Host(`www.ltt-ltc.io.vn`)"
+        - "traefik.http.routers.web-app.entrypoints=web"
+        - "traefik.http.services.web-app.loadbalancer.server.port=4200"
+        - "traefik.http.services.web-app.loadbalancer.healthcheck.path=/"
+        - "traefik.http.services.web-app.loadbalancer.healthcheck.interval=10s"
+        - "traefik.http.services.web-app.loadbalancer.healthcheck.timeout=5s"
+
+  # ------------------------
+  # API GATEWAY (YARP)
+  # ------------------------
+  ltt-ltc-web-gateway:
+    image: dranov220805/ltt-ltc-web-gateway:latest
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Kestrel__Endpoints__Http__Url: http://+:8080
+      Kestrel__Endpoints__Http__Protocols: Http1AndHttp2
+    networks:
+      - traefik-public
+      - ltt-ltc-network
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      placement:
+        constraints:
+          - node.hostname == kaka-server
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.gateway.rule=Host(`api.ltt-ltc.io.vn`)"
+        - "traefik.http.routers.gateway.entrypoints=web"
+        - "traefik.http.services.gateway.loadbalancer.server.port=8080"
+        - "traefik.http.services.gateway.loadbalancer.healthcheck.path=/health"
+        - "traefik.http.services.gateway.loadbalancer.healthcheck.interval=10s"
+        - "traefik.http.services.gateway.loadbalancer.healthcheck.timeout=5s"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # ------------------------
+  # REDIS
+  # ------------------------
+  ltt-ltc-redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - ltt-ltc-redis-data:/data
+    networks:
+      - ltt-ltc-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == kaka-server
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ------------------------
+  # CLOUDFLARE TUNNEL
+  # ------------------------
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token
+      - /run/secrets/tunnel_token
+    secrets:
+      - source: cloudflare_tunnel_token
+        target: tunnel_token
+    networks:
+      - traefik-public
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == kaka-server
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 10
+
+  # ------------------------
+  # PORTAINER (kaka-server)
+  # ------------------------
+  portainer-kaka:
+    image: portainer/portainer-ce:latest
+    command: -H unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - portainer-kaka-data:/data
+    networks:
+      - traefik-public
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == kaka-server
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.portainer-kaka.rule=Host(`jira.ltt-ltc.io.vn`)"
+        - "traefik.http.routers.portainer-kaka.entrypoints=web"
+        - "traefik.http.services.portainer-kaka.loadbalancer.server.port=9000"
+
+networks:
+  traefik-public:
+    external: true
+  ltt-ltc-network:
+    external: true
+
+volumes:
+  ltt-ltc-redis-data:
+    driver: local
+  portainer-kaka-data:
+    driver: local
+
+secrets:
+  cloudflare_tunnel_token:
+    external: true

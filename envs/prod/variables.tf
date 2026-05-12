@@ -23,14 +23,14 @@ variable "tunnel_name" {
 
 variable "origin_web_url" {
   type        = string
-  description = "Local HTTP origin for apex + www (Docker: http://ltt-ltc-nginx:80; K8s: e.g. http://ingress-nginx-controller.ltt-ltc.svc.cluster.local:80)."
-  default     = "http://ltt-ltc-nginx:80"
+  description = "Local HTTP origin for apex + www (Docker Swarm with Traefik: http://traefik:80)."
+  default     = "http://traefik:80"
 }
 
 variable "origin_api_url" {
   type        = string
-  description = "Local HTTP origin for api host (often same nginx virtual hosts as compose)."
-  default     = "http://ltt-ltc-nginx:80"
+  description = "Local HTTP origin for api host (Docker Swarm with Traefik: http://traefik:80)."
+  default     = "http://traefik:80"
 }
 
 variable "public_hostnames" {
@@ -45,4 +45,56 @@ variable "public_hostnames" {
     www  = "www.ltt-ltc.io.vn"
     api  = "api.ltt-ltc.io.vn"
   }
+}
+
+# Server Configuration
+variable "server_1_ip" {
+  type        = string
+  description = "Tailscale IP of Server 1 (smaller, runs FE/Gateway/Redis/Traefik/Cloudflared)"
+  default     = "100.99.158.16"
+}
+
+variable "server_2_ip" {
+  type        = string
+  description = "Tailscale IP of Server 2 (stronger, runs Databases/.NET services)"
+  default     = "100.109.240.84"
+}
+
+variable "ssh_user" {
+  type        = string
+  description = "SSH user for server access"
+  default     = "ubuntu"
+}
+
+# Secrets for Ansible
+variable "tailscale_authkey" {
+  type        = string
+  description = "Tailscale auth key for server join (one-time key)"
+  sensitive   = true
+}
+
+variable "cloudflare_tunnel_token" {
+  type        = string
+  description = "Cloudflare tunnel token for cloudflared"
+  sensitive   = true
+}
+
+variable "sql_sa_password" {
+  type        = string
+  description = "SQL Server SA password"
+  sensitive   = true
+  default     = "MyPassword123."
+}
+
+variable "rabbitmq_user" {
+  type        = string
+  description = "RabbitMQ default user"
+  default     = "guest"
+}
+
+variable "rabbitmq_pass" {
+  type        = string
+  description = "RabbitMQ default password"
+  sensitive   = true
+  default     = "guest"
 }

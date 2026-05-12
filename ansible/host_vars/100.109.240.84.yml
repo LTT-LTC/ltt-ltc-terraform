@@ -1,0 +1,3 @@
+---
+ansible_ssh_pass: "220805"
+ansible_sudo_pass: "220805"

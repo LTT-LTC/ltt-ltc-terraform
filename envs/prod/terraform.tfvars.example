@@ -15,3 +15,15 @@ public_hostnames = {
   www  = "www.ltt-ltc.io.vn"
   api  = "api.ltt-ltc.io.vn"
 }
+
+# Server Configuration (Tailscale IPs)
+server_1_ip = "100.99.158.16"   # Manager: FE, Gateway, Redis, Traefik
+server_2_ip = "100.109.240.84"  # Worker: Databases, .NET services
+ssh_user    = "ubuntu"
+
+# Secrets (use environment variables: TF_VAR_*)
+# tailscale_authkey         = "tskey-auth-..."
+# cloudflare_tunnel_token   = "tunnel-token..."
+# sql_sa_password           = "MyPassword123."
+# rabbitmq_user             = "guest"
+# rabbitmq_pass             = "guest"

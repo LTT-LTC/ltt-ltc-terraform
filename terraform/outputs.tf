@@ -1,23 +1,3 @@
-output "zone_id" {
-  value       = data.cloudflare_zone.this.id
-  description = "Resolved Cloudflare zone ID."
-}
-
-output "tunnel_id" {
-  value       = module.tunnel.tunnel_id
-  description = "Tunnel UUID for DNS and debugging."
-}
-
-output "tunnel_cname_target" {
-  value       = "${module.tunnel.tunnel_id}.cfargotunnel.com"
-  description = "CNAME target created by the dns module."
-}
-
-output "dns_record_ids" {
-  value       = module.dns.record_ids
-  description = "IDs of apex, www, and api records."
-}
-
 output "ansible_inventory_file" {
   description = "Path to generated Ansible inventory"
   value       = local_file.ansible_inventory.filename
@@ -42,12 +22,12 @@ output "next_steps" {
   description = "Instructions for next steps"
   value       = <<-EOT
     
-    Terraform has configured Cloudflare DNS/Tunnel and generated Ansible files.
+    Terraform has generated the Ansible inventory and variables.
     
     Next steps:
-    1. cd ../../ansible
+    1. cd ../ansible
     2. ansible-playbook -i inventory.ini playbook.yml
-    3. Verify with: docker node ls (on Server 1: ssh ubuntu@100.99.158.16)
+    3. Verify with: docker node ls (on Server 1)
     
     EOT
 }

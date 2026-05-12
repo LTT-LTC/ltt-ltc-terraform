@@ -1,0 +1,36 @@
+---
+- name: Create overlay network for Traefik
+  docker_network:
+    name: traefik-public
+    driver: overlay
+    attachable: yes
+    state: present
+
+- name: Create overlay network for application
+  docker_network:
+    name: ltt-ltc-network
+    driver: overlay
+    attachable: yes
+    state: present
+
+- name: Deploy Traefik
+  docker_stack:
+    state: present
+    name: traefik
+    compose: "/opt/stacks/traefik.yml"
+  ignore_errors: yes
+
+- name: Ensure stack directory exists
+  file:
+    path: /opt/stacks
+    state: directory
+    mode: '0755'
+
+- name: Copy Traefik stack file
+  copy:
+    src: traefik.yml
+    dest: /opt/stacks/traefik.yml
+
+- name: Deploy Traefik stack
+  shell: docker stack deploy -c /opt/stacks/traefik.yml traefik
+  changed_when: true

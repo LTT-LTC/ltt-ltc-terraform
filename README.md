@@ -70,7 +70,7 @@ Workflows live under [`.github/workflows/`](.github/workflows/).
 
 | Secret | Purpose |
 |--------|---------|
-| `WORKFLOW_CHECKOUT_TOKEN` | PAT or GitHub App token with `contents: read` on private FE/BE repos used for `actions/checkout` from this repo. |
+| `WORKFLOW_CHECKOUT_TOKEN` | Credential used by `actions/checkout` to clone **private** FE/BE repos from this orchestrator repo (see [WORKFLOW_CHECKOUT_TOKEN](#workflow_checkout_token) below). |
 | `DOCKER_USERNAME` / `DOCKER_PASSWORD` | Registry login for image push (same pattern as existing service workflows). |
 | `TS_AUTHKEY` | Ephemeral Tailscale auth key for the runner (optional but matches current deploy style). |
 | `SSH_PRIVATE_KEY` | SSH private key for deploy user. |
@@ -78,6 +78,44 @@ Workflows live under [`.github/workflows/`](.github/workflows/).
 | `DEPLOY_SSH_USER` | SSH user (e.g. `dranov`). |
 | `DEPLOY_COMPOSE_DIR` | Remote directory containing `docker compose` files (e.g. `/home/dranov/Desktop/ltt-ltc`). |
 | `NEXT_PUBLIC_API_URL` | Build-arg for the frontend (`NEXT_PUBLIC_API_URL`). Alias existing repos using **`API_URL`** by copying its value here or changing this workflow line to match. |
+
+### WORKFLOW_CHECKOUT_TOKEN
+
+Workflows in this repo clone **other** repositories (frontend + backend services). The default **`GITHUB_TOKEN`** only has access to **this** repo, so checkouts must use a separate credential stored as **`WORKFLOW_CHECKOUT_TOKEN`**.
+
+**What to store:** The full token string GitHub shows **once** when you create it (e.g. `github_pat_...` for fine-grained PATs). Paste it into **Settings → Secrets and variables → Actions** on **`ltt-ltc-terraform`** under the name **`WORKFLOW_CHECKOUT_TOKEN`**. There is no fixed public value — each token is unique.
+
+**Fine-grained Personal Access Token (recommended setup)**
+
+1. **Developer settings → Fine-grained tokens → Generate new token.**
+2. **Resource owner**: your user or org that owns the application repos.
+3. **Repository access**: **All repositories** *or* **Only select repositories** — if you select, you must include **every** repo this workflow clones (e.g. `ltt-ltc-web-app`, `ltt-ltc-web-gateway`, and each microservice repo). Missing one repo causes **403** on that checkout.
+4. **Repository permissions → Contents: Read-only** (read is enough for `git fetch` / checkout).
+
+**Organization SSO (mandatory for many orgs)**
+
+If repositories live under an org that enforces **SAML SSO**, open the token after creation → **Configure SSO** → **Authorize** next to that organization. Until authorized, GitHub returns **403** for private org repos even if you are an org owner.
+
+**Misleading error message**
+
+If checkout fails with:
+
+`remote: Write access to repository not granted`  
+`fatal: unable to access 'https://github.com/ORG/REPO/': The requested URL returned error: 403`
+
+GitHub often uses that wording when the token **cannot access the repo at all** (not that push access is required). Typical fixes: add the repo under **Repository access** on the fine-grained token, **authorize SSO** for the org, or regenerate the token and re-paste the secret (no stray spaces or line breaks).
+
+**Classic PAT (simpler alternative)**
+
+**Developer settings → Personal access tokens (classic) → Generate**, scope **`repo`** (full control of private repositories). Store the token as **`WORKFLOW_CHECKOUT_TOKEN`**. This avoids forgetting a repo in the fine-grained allow list.
+
+**GitHub App (optional)**
+
+Instead of a long-lived PAT, install a **GitHub App** on all required repos and use an action such as **`actions/create-github-app-token`** to mint a short-lived installation token for `actions/checkout`. That requires small workflow changes beyond the current PAT-based setup.
+
+**Sanity check**
+
+Confirm each workflow step that checks out an application repo passes **`token: ${{ secrets.WORKFLOW_CHECKOUT_TOKEN }}`** (already used in this repo’s reusable and dispatch workflows).
 
 ### Wiring FE / BE repos
 
@@ -103,9 +141,10 @@ Backend payloads must identify which repo image to build (implicit from `reposit
 
 | `event-type` | Behavior |
 |--------------|----------|
-| `fe_ci` / `fe_deploy` | Frontend Yarn matrix build; deploy builds/pushes Docker image and updates **`ltt-ltc-web-app`** compose service when `deploy` is true (`receive-fe-dispatch.yml`). |
-| `be_ci` / `be_deploy` | Single-backend-repo `dotnet build` + optional tests (`receive-be-dispatch.yml`). |
+| `fe_ci` / `fe_deploy` | Frontend Yarn matrix build; deploy builds/pushes Docker image and updates **`ltt-ltc-web-app`** Swarm service via `docker service update` (`receive-fe-dispatch.yml`). |
+| `be_ci` / `be_deploy` | Single-backend-repo `dotnet build` + optional tests; deploy updates Swarm service via `docker service update` (`receive-be-dispatch.yml`). |
 | `be_ci_all` | Builds/tests **all six** backends (`receive-be-matrix-dispatch.yml` — also runnable via **`workflow_dispatch`**). |
+| `deploy-swarm` | Manual deployment workflow to update Swarm services (`deploy-swarm.yml`). |
 
 ## Related application repos
 
@@ -122,7 +161,95 @@ Backend Dockerfile paths and image names match existing workflows:
 
 Image naming defaults to **`${DOCKER_USERNAME}/<repository-short-name>`** with **`ltt-ltc-movie-service`** → image **`.../ltt-ltc-movie-api`** to match compose.
 
-## Follow-ups
+## Infrastructure: Terraform + Ansible + Docker Swarm
 
-- **Ansible**: bootstrap Tailscale + K3s on both nodes (outside Terraform).
-- **Helm / K8s**: replace SSH compose deploy with `kubectl` / Helm when charts are ready; tunnel Terraform stays unchanged.
+This repository now includes complete infrastructure provisioning for the LTT-LTC cinema management system using **Terraform** (Cloudflare + inventory generation), **Ansible** (server configuration + Docker Swarm), and **Docker Swarm** (container orchestration).
+
+### Architecture
+
+| Component | Responsibility |
+|-----------|----------------|
+| **Terraform** | Cloudflare DNS/Tunnel + generate Ansible inventory |
+| **Ansible** | Install Docker, Tailscale, initialize Swarm, deploy services |
+| **Docker Swarm** | Container orchestration across 2 servers |
+
+### Server Topology
+
+| Server | Tailscale IP | Hardware | Swarm Role | Services |
+|--------|--------------|----------|------------|----------|
+| Server 1 | 100.99.158.16 | 2c/2t/4GB | **Manager** | NextJS FE, API Gateway, Redis, Traefik, Cloudflared |
+| Server 2 | 100.109.240.84 | 4c/8t/16GB | **Worker** | SQL Server, MongoDB, RabbitMQ, All .NET APIs |
+
+### Quick Start
+
+```bash
+# 1. Set secrets as environment variables
+export TF_VAR_cloudflare_api_token="xxx"
+export TF_VAR_tailscale_authkey="tskey-auth-xxx"
+export TF_VAR_cloudflare_tunnel_token="xxx"
+
+# 2. Terraform - generates Ansible inventory
+cd envs/prod
+terraform init
+terraform apply
+
+# 3. Ansible - sets up Docker Swarm and deploys stacks
+cd ../../ansible
+ansible-playbook -i inventory.ini playbook.yml
+
+# 4. Verify
+docker node ls
+docker service ls
+```
+
+See **[HOW_TO_RUN.md](HOW_TO_RUN.md)** for detailed instructions.
+
+### Project Structure
+
+```
+ltt-ltc-terraform/
+├── envs/prod/                 # Main Terraform (Cloudflare + inventory)
+├── ansible/                   # Ansible playbook and roles
+│   ├── playbook.yml
+│   ├── inventory.tpl
+│   ├── group_vars/
+│   └── roles/
+│       ├── docker/            # Install Docker CE
+│       ├── tailscale/         # Install Tailscale
+│       ├── swarm-init/        # Initialize Swarm manager
+│       ├── swarm-join/        # Join worker nodes
+│       ├── traefik/           # Deploy Traefik reverse proxy
+│       ├── secrets/           # Docker secrets
+│       └── stacks/            # Deploy application stacks
+├── swarm/                     # Docker Swarm stack files
+│   ├── stack-server1.yml      # Server 1 services (FE, Gateway, Redis)
+│   ├── stack-server2.yml      # Server 2 services (DBs, .NET APIs)
+│   └── traefik.yml            # Traefik configuration
+└── .github/workflows/         # CI/CD workflows
+    ├── receive-fe-dispatch.yml   # Frontend auto-deploy
+    ├── receive-be-dispatch.yml   # Backend auto-deploy
+    └── deploy-swarm.yml          # Manual deployment
+```
+
+### Deployment Workflow
+
+FE/BE repositories trigger `repository_dispatch` to deploy to Docker Swarm:
+
+1. Build Docker image
+2. Push to Docker Hub
+3. `docker service update --image <new-image> --force <service>`
+
+Services use rolling updates with 3-6 replicas (min-max scaling).
+
+### Docker Swarm Features
+
+- **Overlay networks** via Tailscale for cross-server communication
+- **Placement constraints** ensure services run on correct servers
+- **Rolling updates** with automatic rollback on failure
+- **Health checks** for all services
+- **Docker secrets** for sensitive data
+- **Traefik ingress** with automatic service discovery
+
+### Migration from docker-compose
+
+See **[HOW_TO_RUN.md](HOW_TO_RUN.md)** → "Migration from docker-compose" section.

@@ -6,5 +6,9 @@ terraform {
       source  = "cloudflare/cloudflare"
       version = ">= 4.40.0, < 5.0.0"
     }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.4"
+    }
   }
 }

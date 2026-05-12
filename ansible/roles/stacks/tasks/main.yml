@@ -1,0 +1,28 @@
+---
+- name: Ensure stack directory exists
+  file:
+    path: /opt/stacks
+    state: directory
+    mode: '0755'
+
+- name: Copy Server 1 stack file
+  copy:
+    src: stack-server1.yml
+    dest: /opt/stacks/stack-server1.yml
+
+- name: Copy Server 2 stack file
+  copy:
+    src: stack-server2.yml
+    dest: /opt/stacks/stack-server2.yml
+
+- name: Deploy Server 1 stack
+  shell: docker stack deploy -c /opt/stacks/stack-server1.yml ltt-ltc
+  changed_when: true
+
+- name: Deploy Server 2 stack
+  shell: docker stack deploy -c /opt/stacks/stack-server2.yml ltt-ltc-db
+  changed_when: true
+
+- name: Wait for services to stabilize
+  pause:
+    seconds: 30
