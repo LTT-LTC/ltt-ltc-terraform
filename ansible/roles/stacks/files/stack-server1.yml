@@ -55,6 +55,8 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       Kestrel__Endpoints__Http__Url: http://+:8080
       Kestrel__Endpoints__Http__Protocols: Http1AndHttp2
+      ReverseProxy__Routes__ltc-payment-service__Transforms__0__UseOriginalQueryString: "true"
+      ReverseProxy__Routes__payment-service-direct__Transforms__0__UseOriginalQueryString: "true"
     networks:
       - traefik-public
       - ltt-ltc-network
@@ -137,7 +139,9 @@ services:
   # ------------------------
   portainer-kaka:
     image: portainer/portainer-ce:latest
-    command: -H unix:///var/run/docker.sock
+    command: -H unix:///var/run/docker.sock --admin-password=$$2y$$05$$JOpzA5eWcMirOSzXpRDgHOkIP7DaYIZWKwUlAOUQS.1iTft7eyhW.
+    ports:
+      - "9000:9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - portainer-kaka-data:/data
@@ -150,7 +154,7 @@ services:
           - node.hostname == kaka-server
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.portainer-kaka.rule=Host(`jira.ltt-ltc.io.vn`)"
+        - "traefik.http.routers.portainer-kaka.rule=Host(`portainer1.ltt-ltc.io.vn`)"
         - "traefik.http.routers.portainer-kaka.entrypoints=web"
         - "traefik.http.services.portainer-kaka.loadbalancer.server.port=9000"
 

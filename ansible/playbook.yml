@@ -40,3 +40,9 @@
   become: yes
   roles:
     - stacks
+
+- name: Initialize Databases
+  hosts: swarm_manager
+  become: yes
+  roles:
+    - db-init

@@ -1,0 +1,30 @@
+---
+- name: Wait for SQL Server to be ready
+  shell: |
+    for i in {1..30}; do
+      docker exec ltt-ltc-db_ltt-ltc-sqlserver /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P '{{ sql_sa_password }}' -Q "SELECT 1" && break
+      sleep 5
+    done
+  changed_when: false
+
+- name: Copy database init script
+  copy:
+    src: init.sql
+    dest: /tmp/init.sql
+
+- name: Initialize databases
+  shell: |
+    docker exec -i ltt-ltc-db_ltt-ltc-sqlserver /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P '{{ sql_sa_password }}' -i /tmp/init.sql
+  changed_when: true
+
+- name: Initialize MongoDB replica set
+  shell: |
+    docker exec ltt-ltc-db_ltt-ltc-mongodb mongosh --eval 'rs.initiate()' || true
+  changed_when: false
+
+- name: Wait for MongoDB replica set
+  shell: |
+    sleep 10
+    docker exec ltt-ltc-db_ltt-ltc-mongodb mongosh --eval 'rs.status()' | grep -q '"ok" : 1'
+  changed_when: false
+  ignore_errors: true

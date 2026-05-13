@@ -11,6 +11,8 @@ services:
       MSSQL_SA_PASSWORD_FILE: /run/secrets/sql_sa_password
     secrets:
       - sql_sa_password
+    ports:
+      - "1433:1433"
     volumes:
       - type: volume
         source: ltt-ltc-sqlserver-data
@@ -21,7 +23,7 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == dranov-server
+          - node.labels.server == 2
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/1433'"]
       interval: 10s
@@ -32,6 +34,8 @@ services:
   ltt-ltc-mongodb:
     image: mongo:6
     command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
     volumes:
       - type: volume
         source: ltt-ltc-mongodb-data
@@ -42,7 +46,7 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == dranov-server
+          - node.labels.server == 2
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
@@ -56,6 +60,9 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: "guest"
       RABBITMQ_DEFAULT_PASS: "guest"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
     volumes:
       - type: volume
         source: ltt-ltc-rabbitmq-data
@@ -66,7 +73,7 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == dranov-server
+          - node.labels.server == 2
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
@@ -86,13 +93,13 @@ services:
       App__CorsOrigins: https://ltt-ltc.io.vn,https://www.ltt-ltc.io.vn,https://api.ltt-ltc.io.vn,http://localhost:4200,http://localhost:3000
       App__SelfUrl: https://api.ltt-ltc.io.vn
       ConnectionStrings__Default: Server=ltt-ltc-sqlserver,1433;Database=LTC_Administration;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
-      ConnectionStrings__MongoDb: mongodb://ltt-ltc-mongodb:27017/ltt_ltc
-      Redis__Configuration: ltt-ltc-redis:6379
+      ConnectionStrings__MongoDb: mongodb://ltt-ltc-db_ltt-ltc-mongodb:27017/ltt_ltc
+      Redis__Configuration: ltt-ltc_ltt-ltc-redis:6379
       SeatHold__HoldDurationMinutes: "15"
-      RemoteServices__MovieService__BaseUrl: http://ltt-ltc-movie-api:8080
-      AuthServer__Authority: http://ltt-ltc-web-gateway:8080
+      RemoteServices__MovieService__BaseUrl: https://api.ltt-ltc.io.vn
+      AuthServer__Authority: http://ltt-ltc_ltt-ltc-web-gateway:8080
       AuthServer__RequireHttpsMetadata: "false"
-      RemoteServices__CustomerManagement__BaseUrl: http://ltt-ltc-customer-api:8080
+      RemoteServices__CustomerManagement__BaseUrl: https://api.ltt-ltc.io.vn
     networks:
       - ltt-ltc-network
     deploy:
@@ -104,7 +111,7 @@ services:
         order: start-first
       placement:
         constraints:
-          - node.hostname == dranov-server
+          - node.labels.server == 2
 
   # ------------------------
   # CUSTOMER SERVICE
@@ -117,13 +124,17 @@ services:
       Kestrel__Endpoints__Http__Protocols: Http1AndHttp2
       App__UseHttpsRedirection: "false"
       App__CorsOrigins: https://ltt-ltc.io.vn,https://www.ltt-ltc.io.vn,https://api.ltt-ltc.io.vn,http://localhost:4200,http://localhost:3000
-      RemoteServices__MovieService__BaseUrl: http://ltt-ltc-movie-api:8080
+      RemoteServices__MovieService__BaseUrl: https://api.ltt-ltc.io.vn
       ConnectionStrings__Default: Server=ltt-ltc-sqlserver,1433;Database=LTC_Customer;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
       ConnectionStrings__CustomerService: Server=ltt-ltc-sqlserver,1433;Database=LTC_Customer;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
       ConnectionStrings__AbpTenantManagement: Server=ltt-ltc-sqlserver,1433;Database=LTC_Administration;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
-      Redis__Configuration: ltt-ltc-redis:6379
-      AuthServer__Authority: http://ltt-ltc-web-gateway:8080
+      Redis__Configuration: ltt-ltc_ltt-ltc-redis:6379
+      AuthServer__Authority: http://ltt-ltc_ltt-ltc-web-gateway:8080
       AuthServer__RequireHttpsMetadata: "false"
+      PaymentService__BaseUrl: https://api.ltt-ltc.io.vn
+      PaymentService__ApiKey: ltc-internal-customer-to-payment-dev-key
+      AdministrationService__BaseUrl: https://api.ltt-ltc.io.vn
+      AdministrationService__ApiKey: ltc-internal-customer-to-admin-dev-key
     networks:
       - ltt-ltc-network
     deploy:
@@ -135,7 +146,7 @@ services:
         order: start-first
       placement:
         constraints:
-          - node.hostname == dranov-server
+          - node.labels.server == 2
 
   # ------------------------
   # MOVIE SERVICE
@@ -150,8 +161,8 @@ services:
       App__CorsOrigins: https://ltt-ltc.io.vn,https://www.ltt-ltc.io.vn,https://api.ltt-ltc.io.vn,http://localhost:4200,http://localhost:3000
       ConnectionStrings__Default: Server=ltt-ltc-sqlserver,1433;Database=LTC_Movie;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
       ConnectionStrings__AbpTenantManagement: Server=ltt-ltc-sqlserver,1433;Database=LTC_Administration;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
-      Redis__Configuration: ltt-ltc-redis:6379
-      AuthServer__Authority: http://ltt-ltc-web-gateway:8080
+      Redis__Configuration: ltt-ltc_ltt-ltc-redis:6379
+      AuthServer__Authority: http://ltt-ltc_ltt-ltc-web-gateway:8080
       AuthServer__RequireHttpsMetadata: "false"
     networks:
       - ltt-ltc-network
@@ -164,7 +175,7 @@ services:
         order: start-first
       placement:
         constraints:
-          - node.hostname == dranov-server
+          - node.labels.server == 2
 
   # ------------------------
   # PRODUCT SERVICE
@@ -180,8 +191,8 @@ services:
       ConnectionStrings__Default: Server=ltt-ltc-sqlserver,1433;Database=LTC_Product;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True;MultipleActiveResultSets=true
       ConnectionStrings__AbpTenantManagement: Server=ltt-ltc-sqlserver,1433;Database=LTC_Administration;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
       ProductService__DefaultCatalogSchema: LTC
-      Redis__Configuration: ltt-ltc-redis:6379
-      AuthServer__Authority: http://ltt-ltc-web-gateway:8080
+      Redis__Configuration: ltt-ltc_ltt-ltc-redis:6379
+      AuthServer__Authority: http://ltt-ltc_ltt-ltc-web-gateway:8080
       AuthServer__RequireHttpsMetadata: "false"
     networks:
       - ltt-ltc-network
@@ -194,7 +205,7 @@ services:
         order: start-first
       placement:
         constraints:
-          - node.hostname == dranov-server
+          - node.labels.server == 2
 
   # ------------------------
   # PAYMENT SERVICE
@@ -209,12 +220,14 @@ services:
       App__CorsOrigins: https://ltt-ltc.io.vn,https://www.ltt-ltc.io.vn,https://api.ltt-ltc.io.vn,http://localhost:4200,http://localhost:3000
       ConnectionStrings__Default: Server=ltt-ltc-sqlserver,1433;Database=LTC_Payment;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True;MultipleActiveResultSets=true
       ConnectionStrings__AbpTenantManagement: Server=ltt-ltc-sqlserver,1433;Database=LTC_Administration;User Id=sa;Password=MyPassword123.;Encrypt=False;TrustServerCertificate=True
-      Redis__Configuration: ltt-ltc-redis:6379
-      AuthServer__Authority: http://ltt-ltc-web-gateway:8080
+      Redis__Configuration: ltt-ltc_ltt-ltc-redis:6379
+      AuthServer__Authority: http://ltt-ltc_ltt-ltc-web-gateway:8080
       AuthServer__RequireHttpsMetadata: "false"
       VnPay__PublicBaseUrl: "https://api.ltt-ltc.io.vn/ltc/payment-service"
       VnPay__FrontendSuccessUrl: "https://ltt-ltc.io.vn/booking/payment/vnpay-success"
       VnPay__FrontendFailureUrl: "https://ltt-ltc.io.vn/booking/payment/vnpay-failure"
+      Integration__CustomerServiceBaseUrl: https://api.ltt-ltc.io.vn
+      Integration__CustomerServiceInternalApiKey: ltc-internal-payment-to-customer-dev-key
     networks:
       - ltt-ltc-network
     deploy:
@@ -226,14 +239,14 @@ services:
         order: start-first
       placement:
         constraints:
-          - node.hostname == dranov-server
+          - node.labels.server == 2
 
   # ------------------------
   # PORTAINER (dranov-server)
   # ------------------------
   portainer-dranov:
     image: portainer/portainer-ce:latest
-    command: -H unix:///var/run/docker.sock
+    command: -H unix:///var/run/docker.sock --admin-password=$$2y$$05$$JOpzA5eWcMirOSzXpRDgHOkIP7DaYIZWKwUlAOUQS.1iTft7eyhW.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - portainer-dranov-data:/data
@@ -244,10 +257,10 @@ services:
       replicas: 1
       placement:
         constraints:
-          - node.hostname == dranov-server
+          - node.labels.server == 2
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.portainer-dranov.rule=Host(`db.ltt-ltc.io.vn`)"
+        - "traefik.http.routers.portainer-dranov.rule=Host(`portainer2.ltt-ltc.io.vn`)"
         - "traefik.http.routers.portainer-dranov.entrypoints=web"
         - "traefik.http.services.portainer-dranov.loadbalancer.server.port=9000"
 

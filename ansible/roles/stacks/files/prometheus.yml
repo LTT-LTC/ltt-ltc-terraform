@@ -1,0 +1,79 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs: 
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Node Exporter for system metrics
+  - job_name: 'node-exporter'
+    dns_sd_configs:
+      - names:
+          - 'tasks.node-exporter'
+        type: 'A'
+        port: 9100
+
+  # cAdvisor for container metrics
+  - job_name: 'cadvisor'
+    dns_sd_configs:
+      - names:
+          - 'tasks.cadvisor'
+        type: 'A'
+        port: 8080
+
+  # Docker Swarm services
+  - job_name: 'docker-swarm'
+    dns_sd_configs:
+      - names:
+          - 'tasks.ltt-ltc-administration-api'
+          - 'tasks.ltt-ltc-customer-api'
+          - 'tasks.ltt-ltc-movie-api'
+          - 'tasks.ltt-ltc-product-api'
+          - 'tasks.ltt-ltc-payment-api'
+          - 'tasks.ltt-ltc-web-app'
+          - 'tasks.ltt-ltc-web-gateway'
+        type: 'A'
+        port: 8080
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Traefik metrics
+  - job_name: 'traefik'
+    static_configs:
+      - targets: ['traefik:8080']
+    metrics_path: '/metrics'
+
+  # SQL Server metrics (if available)
+  - job_name: 'sqlserver'
+    static_configs:
+      - targets: ['ltt-ltcsqlserver:1433']
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+
+  # MongoDB metrics (if available)
+  - job_name: 'mongodb'
+    static_configs:
+      - targets: ['ltt-ltcmongodb:27017']
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+
+  # Redis metrics (if available)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['ltt-ltcredis:6379']
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+
+  # RabbitMQ metrics (if available)
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['ltt-ltcrabbitmq:15672']
+    scrape_interval: 30s
+    metrics_path: '/metrics'

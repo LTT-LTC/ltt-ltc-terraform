@@ -9,17 +9,66 @@ This guide covers setting up the LTT-LTC cinema management system infrastructure
 - **SSH key** for server access (private key stored in `~/.ssh/`)
 - **Ubuntu 22.04 LTS** on both servers
 - **Tailscale** network setup (servers should have Tailscale IPs)
+- **Domain**: `ltt-ltc.io.vn` with subdomains configured in Cloudflare
+- **Cloudflare Tunnel Token** for secure public access (no open ports needed)
+- **GitHub Secrets** configured in each BE/FE repository for auto-deployment
+
+### Required Secrets (for GitHub Actions auto-deployment)
+
+Configure these in each service repository (Settings → Secrets and variables):
+
+| Secret | Description | Required In |
+|--------|-------------|-------------|
+| `DOCKER_USERNAME` | Docker Hub username | All BE + FE repos |
+| `DOCKER_PASSWORD` | Docker Hub password/token | All BE + FE repos |
+| `TS_AUTHKEY` | Tailscale auth key | All BE + FE repos |
+| `SSH_PRIVATE_KEY` | SSH private key for server access | All BE + FE repos |
 
 ## Infrastructure Overview
 
-| Server | Tailscale IP | Hardware | Role |
-|--------|--------------|----------|------|
-| Server 1 | 100.99.158.16 | 2c/2t/4GB | Swarm Manager, NextJS FE, API Gateway, Redis, Traefik, Cloudflared |
-| Server 2 | 100.109.240.84 | 4c/8t/16GB | Swarm Worker, SQL Server, MongoDB, RabbitMQ, All .NET services |
+| Server | Tailscale IP | Public IP | Hardware | Role |
+|--------|--------------|-----------|----------|------|
+| kaka-server | 100.99.158.16 | - | 2c/2t/4GB | Swarm Manager, NextJS FE, API Gateway, Redis, Traefik, Cloudflared, Portainer1 |
+| dranov-server | 100.109.240.84 | - | 4c/8t/16GB | Swarm Worker, SQL Server, MongoDB, RabbitMQ, All .NET services, Portainer2, Monitoring |
 
-## Quick Start
+## Domain & Subdomain Configuration
 
-### 1. Prepare Secrets
+| Subdomain | Service | Server | Access |
+|-----------|---------|--------|--------|
+| `ltt-ltc.io.vn` | NextJS Frontend | kaka-server | Public via Cloudflare |
+| `www.ltt-ltc.io.vn` | NextJS Frontend | kaka-server | Public via Cloudflare |
+| `api.ltt-ltc.io.vn` | Web Gateway (YARP) | kaka-server | Public via Cloudflare |
+| `portainer1.ltt-ltc.io.vn` | Portainer (kaka-server) | kaka-server | Public via Cloudflare |
+| `portainer2.ltt-ltc.io.vn` | Portainer (dranov-server) | dranov-server | Public via Cloudflare |
+| `monitoring.ltt-ltc.io.vn` | Grafana | dranov-server | Public via Cloudflare |
+
+**Internal Services (No public subdomain):**
+- Prometheus: `http://100.109.240.84:9090`
+- All Backend APIs: Internal via Docker Swarm network
+
+## Complete Deployment Guide
+
+### Phase 1: Server Preparation
+
+#### 1.1 Prepare Both Servers
+
+Ensure both servers have:
+- Ubuntu 22.04 LTS installed
+- SSH access with key authentication
+- Tailscale installed and authenticated
+- Docker installed (or let Ansible install it)
+
+#### 1.2 Verify SSH Access
+
+```bash
+# From your local machine, test SSH to both servers
+ssh kaka-server@100.99.158.16 "echo 'kaka-server OK'"
+ssh kaka-server@100.109.240.84 "echo 'dranov-server OK'"
+```
+
+### Phase 2: Environment Setup
+
+#### 2.1 Prepare Secrets
 
 Copy the secrets from `DevOps/secret.md` and set as environment variables:
 
@@ -32,18 +81,18 @@ export TF_VAR_rabbitmq_user="guest"
 export TF_VAR_rabbitmq_pass="guest"
 ```
 
-### 2. Terraform - Provision Infrastructure
+### Phase 3: Terraform - Provision Infrastructure
 
 ```bash
 cd DevOps/ltt-ltc-terraform/envs/prod
 
-# Initialize
+# Initialize Terraform
 terraform init
 
-# Plan
+# Plan the infrastructure
 terraform plan
 
-# Apply (generates Ansible inventory)
+# Apply (generates Ansible inventory and group_vars)
 terraform apply
 ```
 
@@ -52,46 +101,435 @@ terraform apply
 - Creates `ansible/group_vars/all.yml` with secrets
 - **Does NOT deploy containers** (Ansible handles that)
 
-### 3. Ansible - Setup Docker Swarm
+### Phase 4: Ansible - Setup Docker Swarm
 
 ```bash
 cd DevOps/ltt-ltc-terraform/ansible
 
-# Test connectivity
+# Test connectivity to all nodes
 ansible all -i inventory.ini -m ping
 
-# Run full playbook
+# Run full playbook (this sets up everything)
 ansible-playbook -i inventory.ini playbook.yml
 ```
 
 **What Ansible does:**
 - Installs Docker CE on all nodes
 - Installs Tailscale and authenticates
-- Initializes Swarm on Server 1 (manager)
-- Joins Server 2 as worker
+- Initializes Swarm on kaka-server (manager)
+- Joins dranov-server as worker
 - Deploys Traefik reverse proxy
 - Creates Docker secrets
-- Deploys application stacks
+- Deploys application stacks (ltt-ltc, ltt-ltc-db)
+- Deploys monitoring stack (Prometheus, Grafana, Node Exporter, cAdvisor)
+- Copies prometheus.yml configuration
+- Initializes SQL Server databases (runs init.sql)
+- Initializes MongoDB replica set
 
-### 4. Verify Deployment
+### Phase 5: Verify Deployment
 
-SSH to Server 1 (manager):
+After Ansible completes, SSH to kaka-server (manager) to verify everything:
 
 ```bash
-ssh ubuntu@100.99.158.16
+ssh kaka-server@100.99.158.16
 
-# Check Swarm status
+# Check Swarm status - should show 2 nodes (1 manager, 1 worker)
 docker node ls
 
-# Check services
+# Expected output:
+# ID                            HOSTNAME       STATUS    AVAILABILITY   MANAGER STATUS   ENGINE VERSION
+# xxxxxx *                      kaka-server    Ready     Active         Leader           24.0.7
+# yyyyyy                        dranov-server  Ready     Active                          24.0.7
+
+# Check all 3 stacks are deployed
+docker stack ls
+# Expected:
+# NAME                SERVICES
+# ltt-ltc             5
+# ltt-ltc-db          9
+# ltt-ltc-monitoring  4
+
+# Check all services are running
 docker service ls
 
-# Check Traefik logs
-docker service logs traefik_traefik
+# Check Prometheus is running (1/1 replicas)
+docker service ls | grep prometheus
 
-# Check application logs
+# Check databases were initialized
+docker exec ltt-ltc-db_ltt-ltc-sqlserver /opt/mssql-tools/bin/sqlcmd \
+  -S localhost -U sa -P 'MyPassword123.' \
+  -Q "SELECT name FROM sys.databases WHERE name LIKE 'LTC_%'"
+```
+
+### Phase 6: Manual Recovery (if needed)
+
+If Ansible fails at any step, you can manually complete the setup:
+
+```bash
+# SSH to manager node
+ssh kaka-server@100.99.158.16
+
+# Deploy specific stack
+docker stack deploy -c /opt/stacks/stack-server1.yml ltt-ltc
+docker stack deploy -c /opt/stacks/stack-server2.yml ltt-ltc-db
+docker stack deploy -c /opt/stacks/monitoring-stack.yml ltt-ltc-monitoring
+
+# Or redeploy all
+docker stack rm ltt-ltc ltt-ltc-db ltt-ltc-monitoring
+docker stack deploy -c /opt/stacks/stack-server1.yml ltt-ltc
+docker stack deploy -c /opt/stacks/stack-server2.yml ltt-ltc-db
+docker stack deploy -c /opt/stacks/monitoring-stack.yml ltt-ltc-monitoring
+```
+
+### Phase 7: Post-Deployment Setup (Manual)
+
+The following steps require manual configuration after Ansible completes:
+
+#### 7.1 Configure Grafana
+
+1. **Login to Grafana**: https://monitoring.ltt-ltc.io.vn
+   - Username: `admin`
+   - Password: `admin`
+
+2. **Add Prometheus Data Source**:
+   - Configuration → Data Sources → Add data source
+   - Select **Prometheus**
+   - URL: `http://prometheus:9090`
+   - Click **Save & Test**
+
+3. **Import Dashboards**:
+   - Create → Import
+   - Import these dashboard IDs:
+     - Node Exporter Full: `1860`
+     - Docker Swarm: `11575`
+     - cAdvisor: `14282`
+
+#### 7.2 Verify Prometheus Targets
+
+```bash
+ssh kaka-server@100.99.158.16
+
+# Check all targets are being scraped
+curl http://100.109.240.84:9090/api/v1/status/targets
+
+# Check Prometheus health
+curl http://100.109.240.84:9090/-/healthy
+```
+
+### Phase 8: Verify Full Stack
+
+#### 8.1 Check All Stacks
+
+```bash
+# List all stacks
+docker stack ls
+
+# Expected output:
+# NAME                SERVICES
+# ltt-ltc             5
+# ltt-ltc-db          9
+# ltt-ltc-monitoring  4
+```
+
+#### 8.2 Check Service Status
+
+```bash
+# Check all services with their replica status
+docker service ls --format 'table {{.Name}}\t{{.Replicas}}\t{{.Image}}'
+
+# Check specific stack services
+docker stack services ltt-ltc
+docker stack services ltt-ltc-db
+docker stack services ltt-ltc-monitoring
+```
+
+#### 8.3 Verify Domains
+
+```bash
+# Test main domain
+curl -s -I https://ltt-ltc.io.vn
+
+# Test API domain
+curl -s -I https://api.ltt-ltc.io.vn
+
+# Test Portainer1
+curl -s -I https://portainer1.ltt-ltc.io.vn
+
+# Test Portainer2
+curl -s -I https://portainer2.ltt-ltc.io.vn
+
+# Test Grafana
+curl -s -I https://monitoring.ltt-ltc.io.vn
+
+# Test internal services via IP
+# Prometheus
+curl -s http://100.109.240.84:9090/-/healthy
+
+# Grafana (if domains not working)
+curl -s http://100.109.240.84:3000/api/health
+```
+
+## Debugging & Troubleshooting Guide
+
+### Essential Debug Commands
+
+#### List All Stacks and Services
+
+```bash
+# SSH to manager node (kaka-server)
+ssh kaka-server@100.99.158.16
+
+# List all stacks
+docker stack ls
+
+# List all services with status
+docker service ls
+
+# List services in specific stack
+docker stack services ltt-ltc
+docker stack services ltt-ltc-db
+docker stack services ltt-ltc-monitoring
+
+# Detailed service status with replica info
+docker service ls --format 'table {{.Name}}\t{{.Replicas}}\t{{.Image}}\t{{.Ports}}'
+
+# Check tasks (containers) for a service
+docker service ps ltt-ltc-db_ltt-ltc-administration-api
+
+# Check all tasks across all services
+docker service ps $(docker service ls -q)
+```
+
+#### View Service Logs
+
+```bash
+# View logs for a service
 docker service logs ltt-ltc_ltt-ltc-web-app
-docker service logs ltt-ltc-db_ltt-ltc-administration-api
+
+# Follow logs (real-time)
+docker service logs -f ltt-ltc_ltt-ltc-web-app
+
+# Last 100 lines
+docker service logs --tail 100 ltt-ltc-db_ltt-ltc-administration-api
+
+# Show timestamps
+docker service logs --tail 50 --timestamps ltt-ltc-db_ltt-ltc-customer-api
+
+# Raw output (no truncation)
+docker service logs --tail 10 --raw ltt-ltc-db_ltt-ltc-movie-api
+
+# Logs from all tasks (including failed ones)
+docker service ps ltt-ltc-db_ltt-ltc-payment-api --no-trunc
+```
+
+#### Debug Failed Services
+
+```bash
+# Check why a service has failed replicas
+docker service ps ltt-ltc-db_ltt-ltc-product-api
+
+# Inspect service details
+docker service inspect ltt-ltc-db_ltt-ltc-product-api --pretty
+
+# Check service events (creation, updates, failures)
+docker service inspect ltt-ltc-db_ltt-ltc-product-api --format '{{json .UpdateStatus}}'
+
+# Check constraints and placement
+docker service inspect ltt-ltc-db_ltt-ltc-product-api --format '{{json .Spec.TaskTemplate.Placement}}'
+```
+
+#### Network Debugging
+
+```bash
+# List all networks
+docker network ls
+
+# Inspect overlay network
+docker network inspect ltt-ltc-network
+
+# Check network connectivity between services
+docker run --rm --network ltt-ltc-network alpine ping -c 3 ltt-ltc-redis
+
+# Test database connectivity
+docker run --rm --network ltt-ltc-network alpine nc -zv ltt-ltc-sqlserver 1433
+docker run --rm --network ltt-ltc-network alpine nc -zv ltt-ltc-mongodb 27017
+docker run --rm --network ltt-ltc-network alpine nc -zv ltt-ltc-rabbitmq 5672
+docker run --rm --network ltt-ltc-network alpine nc -zv ltt-ltc-redis 6379
+```
+
+#### Container-Level Debugging
+
+```bash
+# List all containers on a node
+docker ps -a
+
+# Exec into a running container
+docker exec -it <container-id> bash
+
+# Check container logs directly
+docker logs <container-id>
+docker logs --tail 50 -f <container-id>
+
+# Check resource usage
+docker stats
+
+# Inspect container
+docker inspect <container-id>
+```
+
+### Common Issues and Fixes
+
+#### Issue: Services stuck in "Pending" or 0/1 replicas
+
+```bash
+# Check node availability
+docker node ls
+
+# Check if node labels are correct
+docker node inspect kaka-server --format '{{json .Spec.Labels}}'
+docker node inspect dranov-server --format '{{json .Spec.Labels}}'
+
+# Set node labels if missing
+ssh kaka-server@100.99.158.16 "docker node update --label-add server=1 kaka-server"
+ssh kaka-server@100.99.158.16 "docker node update --label-add server=2 dranov-server"
+
+# Check resource constraints
+docker system df
+
+# Check if required ports are available
+netstat -tlnp | grep -E '80|443|9000|3000|9090'
+```
+
+#### Issue: Redis Connection Errors
+
+```bash
+# Verify Redis is running
+docker service ls | grep redis
+
+# Check Redis logs
+docker service logs ltt-ltc_ltt-ltc-redis
+
+# Test Redis connectivity from BE service node
+ssh kaka-server@100.109.240.84 "docker run --rm --network ltt-ltc-network redis:7-alpine redis-cli -h ltt-ltc_ltt-ltc-redis ping"
+
+# Restart Redis if needed
+docker service update --force ltt-ltc_ltt-ltc-redis
+```
+
+#### Issue: Database Connection Failures
+
+```bash
+# Check SQL Server status
+docker service logs ltt-ltc-db_ltt-ltc-sqlserver --tail 50
+
+# Test SQL Server connection
+ssh kaka-server@100.109.240.84 "docker exec ltt-ltc-db_ltt-ltc-sqlserver /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'MyPassword123.' -Q 'SELECT 1'"
+
+# Check MongoDB status
+docker service logs ltt-ltc-db_ltt-ltc-mongodb --tail 50
+
+# Check MongoDB replica set status
+ssh kaka-server@100.109.240.84 "docker exec ltt-ltc-db_ltt-ltc-mongodb mongosh --eval 'rs.status()'"
+```
+
+#### Issue: Traefik Not Routing
+
+```bash
+# Check Traefik service
+docker service logs traefik_traefik --tail 50
+
+# Check Traefik dashboard (if enabled)
+curl http://100.99.158.16:8080/api/rawdata
+
+# Verify Traefik labels on services
+docker service inspect ltt-ltc_ltt-ltc-web-app --format '{{json .Spec.Labels}}'
+docker service inspect ltt-ltc_ltt-ltc-web-gateway --format '{{json .Spec.Labels}}'
+
+# Restart Traefik
+docker service update --force traefik_traefik
+```
+
+#### Issue: Cloudflare Tunnel Not Working
+
+```bash
+# Check cloudflared logs
+docker service logs ltt-ltc-server1_cloudflared --tail 50
+
+# Check tunnel status
+curl -s https://ltt-ltc.io.vn | head -20
+
+# Verify tunnel token is correct
+docker secret ls | grep cloudflare
+```
+
+#### Issue: Portainer/Grafana Not Accessible
+
+```bash
+# Check Portainer service status
+docker service ls | grep portainer
+
+# Check Grafana service status
+docker service ls | grep grafana
+
+# View logs
+docker service logs ltt-ltc-server1_portainer-kaka --tail 50
+docker service logs ltt-ltc-monitoring_grafana --tail 50
+
+# Test direct IP access if domains fail
+# Portainer on kaka-server
+curl -s http://100.99.158.16:9000/api/status
+
+# Portainer on dranov-server
+curl -s http://100.109.240.84:9000/api/status
+
+# Grafana
+curl -s http://100.109.240.84:3000/api/health
+```
+
+### Restart and Recovery Commands
+
+```bash
+# Restart a specific service
+docker service update --force ltt-ltc-db_ltt-ltc-administration-api
+
+# Restart entire stack
+docker stack deploy -c /opt/stacks/stack-server2.yml ltt-ltc-db
+
+# Remove and redeploy a stack (WARNING: removes all services)
+docker stack rm ltt-ltc-db
+docker stack deploy -c /opt/stacks/stack-server2.yml ltt-ltc-db
+
+# Update image for a service
+docker service update --image dranov220805/ltt-ltc-administration-api:latest ltt-ltc-db_ltt-ltc-administration-api
+
+# Rollback failed service update
+docker service update --rollback ltt-ltc-db_ltt-ltc-administration-api
+```
+
+### Health Check Commands
+
+```bash
+# Check all BE API health endpoints
+for service in administration customer movie product payment; do
+  echo "Checking $service-api..."
+  curl -s http://ltt-ltc-$service-api:8080/health || echo "FAILED"
+done
+
+# Check Web Gateway
+curl -s http://ltt-ltc-web-gateway:8080/health
+
+# Check all databases
+# SQL Server
+sqlcmd -S ltt-ltc-sqlserver,1433 -U sa -P 'MyPassword123.' -Q "SELECT 1"
+
+# MongoDB
+mongosh mongodb://ltt-ltc-mongodb:27017/ltt_ltc --eval "db.adminCommand('ping')"
+
+# Redis
+redis-cli -h ltt-ltc-redis ping
+
+# RabbitMQ
+curl -s -u guest:guest http://ltt-ltc-rabbitmq:15672/api/health/checks/virtual-hosts
 ```
 
 ## Service Management
